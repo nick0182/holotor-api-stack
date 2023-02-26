@@ -7,3 +7,6 @@ node_modules
 .cdk.staging
 cdk.out
 .idea
+
+cdk-deploy-to.bat
+cdk-deploy-to.ps1
