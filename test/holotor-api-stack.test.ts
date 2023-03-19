@@ -1,16 +1,16 @@
-// import * as cdk from 'aws-cdk-lib';
-// import { Template } from 'aws-cdk-lib/assertions';
-// import * as HolotorApiStack from '../lib/holotor-api-stack-stack';
+import { expect, jest, test } from "@jest/globals";
+import * as dotenv from "dotenv";
+import axios from "axios";
 
-// example test. To run these tests, uncomment this file along with the
-// example resource in lib/holotor-api-stack-stack.ts
-test("SQS Queue Created", () => {
-  //   const app = new cdk.App();
-  //     // WHEN
-  //   const stack = new HolotorApiStack.HolotorApiStackStack(app, 'MyTestStack');
-  //     // THEN
-  //   const template = Template.fromStack(stack);
-  //   template.hasResourceProperties('AWS::SQS::Queue', {
-  //     VisibilityTimeout: 300
-  //   });
+dotenv.config();
+
+test("Positive scenarios - no auth context - unauthorized response status code", () => {
+  const apiGWUrl = process.env.API_GW_URL as string;
+  const apiResourcePath = process.env.API_RESOURCE_PATH as string;
+  axios({
+    method: "POST",
+    url: apiGWUrl + apiResourcePath,
+  }).catch((error) => {
+    expect(error.response.status).toBe(403);
+  });
 });

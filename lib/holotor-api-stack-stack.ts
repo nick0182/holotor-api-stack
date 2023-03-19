@@ -12,7 +12,7 @@ import {
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
-import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
+import { Architecture, IFunction, Runtime } from "aws-cdk-lib/aws-lambda";
 import { ManagedPolicy, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
   AccountRecovery,
@@ -20,6 +20,7 @@ import {
   UserPoolClientIdentityProvider,
   UserPoolClientOptions,
 } from "aws-cdk-lib/aws-cognito";
+import { AttributeType, Table } from "aws-cdk-lib/aws-dynamodb";
 import * as path from "path";
 
 export interface HolotorStackProps extends StackProps {
@@ -55,14 +56,19 @@ export class HolotorApiStackStack extends Stack {
       .addResource("v1")
       .addResource("videos")
       .addResource("next");
+    const holotorLambda = this.buildLambda(`${props.stage}-holotor-api-lambda`);
     videoResource.addMethod(
       "POST",
-      this.createLambdaIntegration(`${props.stage}-holotor-api-lambda`),
+      this.createLambdaIntegration(holotorLambda),
       {
         authorizer: this.createCognitoAuthorizer(holotorCognitoUserPool),
         authorizationType: AuthorizationType.COGNITO,
       }
     );
+    const bonusVideosTable = this.createDynamoDBTable(
+      `${props.stage}-holotor-user-bonus-videos-table`
+    );
+    bonusVideosTable.grantReadWriteData(holotorLambda);
   }
 
   private createCognitoUserPool(id: string, stage: string) {
@@ -80,6 +86,9 @@ export class HolotorApiStackStack extends Stack {
       },
       removalPolicy: RemovalPolicy.DESTROY,
       selfSignUpEnabled: true,
+      signInAliases: {
+        email: true,
+      },
       userPoolName: id,
     });
     const userPoolClientId = `${stage}-holotor-cognito-desktop-app-client`;
@@ -135,9 +144,9 @@ export class HolotorApiStackStack extends Stack {
     return new LogGroupLogDestination(holotorAPILogGroup);
   }
 
-  private createLambdaIntegration(id: string) {
-    return new LambdaIntegration(this.buildLambda(id), {
-      allowTestInvoke: false
+  private createLambdaIntegration(holotorLambda: IFunction) {
+    return new LambdaIntegration(holotorLambda, {
+      allowTestInvoke: false,
     });
   }
 
@@ -169,6 +178,21 @@ export class HolotorApiStackStack extends Stack {
           "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
         ),
       ],
+    });
+  }
+
+  private createDynamoDBTable(id: string) {
+    return new Table(this, id, {
+      partitionKey: {
+        name: "user_id",
+        type: AttributeType.STRING,
+      },
+      removalPolicy: RemovalPolicy.DESTROY,
+      sortKey: {
+        name: "video_retrieval_ts",
+        type: AttributeType.NUMBER,
+      },
+      tableName: "user_bonus_videos",
     });
   }
 }
