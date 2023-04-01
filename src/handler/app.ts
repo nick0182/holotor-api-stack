@@ -2,8 +2,9 @@ import {
   APIGatewayProxyEvent,
   APIGatewayProxyStructuredResultV2,
 } from "aws-lambda";
-import { hasLastVideoByTimeAfter } from "../services/DatabaseService";
+import { DatabaseService } from "../services/DatabaseService";
 import { CognitoUser } from "../models/CognitoUser";
+import { getEpochMillisBeforeDay } from "../utils/Utils";
 
 export const handler = async (
   event: APIGatewayProxyEvent
@@ -12,7 +13,8 @@ export const handler = async (
   const cognitoUser = fetchCognitoUser(event);
   console.log(`Fetched cognito user: ${JSON.stringify(cognitoUser)}`);
   const beforeWeekEpochMillis = getEpochMillisBeforeDay(7);
-  const hasLastVideo = await hasLastVideoByTimeAfter(
+  const databaseService = new DatabaseService();
+  const hasLastVideo = await databaseService.hasLastVideoByTimeAfter(
     cognitoUser.id,
     beforeWeekEpochMillis.toString()
   );
@@ -33,9 +35,4 @@ function fetchCognitoUser(event: APIGatewayProxyEvent): CognitoUser {
       email: authClaims.email,
     };
   }
-}
-
-function getEpochMillisBeforeDay(beforeDay: number): number {
-  const now = new Date();
-  return now.setDate(now.getDate() - beforeDay);
 }
