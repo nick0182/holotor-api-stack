@@ -1,5 +1,7 @@
 import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
 
+const environment = process.env.ENVIRONMENT as string;
+
 export class DatabaseService {
   constructor(private readonly dbClient: DynamoDBClient = new DynamoDBClient({})) {}
 
@@ -12,7 +14,7 @@ export class DatabaseService {
     );
     const result = await this.dbClient.send(
       new QueryCommand({
-        TableName: "user_bonus_videos",
+        TableName: `${environment}-user-bonus-videos`,
         KeyConditionExpression: "user_id = :a AND video_retrieval_ts > :b",
         ExpressionAttributeValues: {
           ":a": { S: userId },

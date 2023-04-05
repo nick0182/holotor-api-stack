@@ -22,6 +22,11 @@ import {
 } from "aws-cdk-lib/aws-cognito";
 import { AttributeType, Table } from "aws-cdk-lib/aws-dynamodb";
 import * as path from "path";
+import {
+  BlockPublicAccess,
+  Bucket,
+  BucketEncryption,
+} from "aws-cdk-lib/aws-s3";
 
 export interface HolotorStackProps extends StackProps {
   readonly stage: string;
@@ -31,32 +36,16 @@ export interface HolotorStackProps extends StackProps {
 export class HolotorApiStackStack extends Stack {
   constructor(scope: Construct, id: string, props: HolotorStackProps) {
     super(scope, id, props);
-    const holotorCognitoUserPool = this.createCognitoUserPool(
-      `${props.stage}-holotor-user-pool`,
+    const holotorCognitoUserPool: UserPool = this.createCognitoUserPool(
       props.stage
     );
-    const holotorAPI = new RestApi(this, `${props.stage}-holotor-api`, {
-      cloudWatchRole: true,
-      deployOptions: {
-        accessLogDestination: this.createLogGroupDestination(props.stage),
-        accessLogFormat: AccessLogFormat.jsonWithStandardFields(),
-        dataTraceEnabled: true, // for dev environment only
-        loggingLevel: MethodLoggingLevel.INFO,
-        metricsEnabled: true,
-        stageName: props.stage,
-        throttlingBurstLimit: 10, // number of concurrent requests
-        throttlingRateLimit: 100, // number of requests per second
-      },
-      endpointTypes: [EndpointType.REGIONAL],
-      restApiName: `${props.stage}-holotor-api`,
-      retainDeployments: false,
-    });
+    const holotorAPI: RestApi = this.createRestApi(props.stage);
     const videoResource = holotorAPI.root
       .addResource("api")
       .addResource("v1")
       .addResource("videos")
       .addResource("next");
-    const holotorLambda = this.buildLambda(`${props.stage}-holotor-api-lambda`);
+    const holotorLambda = this.buildLambda(props.stage);
     videoResource.addMethod(
       "POST",
       this.createLambdaIntegration(holotorLambda),
@@ -65,13 +54,14 @@ export class HolotorApiStackStack extends Stack {
         authorizationType: AuthorizationType.COGNITO,
       }
     );
-    const bonusVideosTable = this.createDynamoDBTable(
-      `${props.stage}-holotor-user-bonus-videos-table`
-    );
+    const bonusVideosTable = this.createDynamoDBTable(props.stage);
+    const bonusVideosS3Bucket = this.createBonusVideosS3Bucket(props.stage);
     bonusVideosTable.grantReadWriteData(holotorLambda);
+    bonusVideosS3Bucket.grantRead(holotorLambda);
   }
 
-  private createCognitoUserPool(id: string, stage: string) {
+  private createCognitoUserPool(stage: string) {
+    const id = `${stage}-holotor-user-pool`;
     const holotorCognitoUserPool = new UserPool(this, id, {
       accountRecovery: AccountRecovery.EMAIL_ONLY,
       autoVerify: {
@@ -101,6 +91,26 @@ export class HolotorApiStackStack extends Stack {
       this.createUserPoolDomain(stage)
     );
     return holotorCognitoUserPool;
+  }
+
+  private createRestApi(stage: string): RestApi {
+    const id = `${stage}-holotor-api`;
+    return new RestApi(this, id, {
+      cloudWatchRole: true,
+      deployOptions: {
+        accessLogDestination: this.createLogGroupDestination(stage),
+        accessLogFormat: AccessLogFormat.jsonWithStandardFields(),
+        dataTraceEnabled: true, // for dev environment only
+        loggingLevel: MethodLoggingLevel.INFO,
+        metricsEnabled: true,
+        stageName: stage,
+        throttlingBurstLimit: 10, // number of concurrent requests
+        throttlingRateLimit: 100, // number of requests per second
+      },
+      endpointTypes: [EndpointType.REGIONAL],
+      restApiName: id,
+      retainDeployments: false,
+    });
   }
 
   private createUserPoolClient(id: string): UserPoolClientOptions {
@@ -156,33 +166,36 @@ export class HolotorApiStackStack extends Stack {
     });
   }
 
-  private buildLambda(id: string) {
-    return new NodejsFunction(this, id, {
+  private buildLambda(stage: string) {
+    return new NodejsFunction(this, `${stage}-holotor-api-lambda`, {
       architecture: Architecture.ARM_64,
       description: "Holotor API lambda",
+      environment: {
+        ENVIRONMENT: stage,
+      },
       entry: path.join(__dirname, `/../src/handler/app.ts`),
       logRetention: RetentionDays.THREE_DAYS,
       runtime: Runtime.NODEJS_16_X,
       timeout: Duration.seconds(10),
-      role: this.createLambdaBasicRoleWithManagedPolicy(`${id}-role`),
+      role: this.createLambdaBasicRoleWithManagedPolicy(stage),
     });
   }
 
-  private createLambdaBasicRoleWithManagedPolicy(id: string) {
-    return new Role(this, id, {
+  private createLambdaBasicRoleWithManagedPolicy(stage: string) {
+    return new Role(this, `${stage}-holotor-api-lambda-role`, {
       assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
       managedPolicies: [
         ManagedPolicy.fromManagedPolicyArn(
           this,
-          `${id}-policy`,
+          `${stage}-holotor-api-lambda-role-policy`,
           "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
         ),
       ],
     });
   }
 
-  private createDynamoDBTable(id: string) {
-    return new Table(this, id, {
+  private createDynamoDBTable(stage: string) {
+    return new Table(this, `${stage}-holotor-user-bonus-videos-table`, {
       partitionKey: {
         name: "user_id",
         type: AttributeType.STRING,
@@ -192,7 +205,18 @@ export class HolotorApiStackStack extends Stack {
         name: "video_retrieval_ts",
         type: AttributeType.NUMBER,
       },
-      tableName: "user_bonus_videos",
+      tableName: `${stage}-user-bonus-videos`,
+    });
+  }
+
+  private createBonusVideosS3Bucket(stage: string): Bucket {
+    return new Bucket(this, `${stage}-holotor-bonus-videos-s3-bucket`, {
+      autoDeleteObjects: true,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      bucketName: `${stage}-holotor-bonus-videos`,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
   }
 }

@@ -5,12 +5,15 @@ import {
   KeyType,
   ScalarAttributeType,
 } from "@aws-sdk/client-dynamodb";
+import * as dotenv from "dotenv";
+
+dotenv.config()
 
 const partitionKey = "user_id";
 
 const sortKey = "video_retrieval_ts";
 
-export const tableName = "user_bonus_videos";
+export const tableName = `${process.env.ENVIRONMENT}-user-bonus-videos`;
 
 export const mockUserId1 = "user123";
 
