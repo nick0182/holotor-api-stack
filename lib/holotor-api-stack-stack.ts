@@ -13,7 +13,14 @@ import {
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Architecture, IFunction, Runtime } from "aws-cdk-lib/aws-lambda";
-import { ManagedPolicy, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import {
+  Effect,
+  ManagedPolicy,
+  PolicyDocument,
+  PolicyStatement,
+  Role,
+  ServicePrincipal,
+} from "aws-cdk-lib/aws-iam";
 import {
   AccountRecovery,
   UserPool,
@@ -45,7 +52,8 @@ export class HolotorApiStackStack extends Stack {
       .addResource("v1")
       .addResource("videos")
       .addResource("next");
-    const holotorLambda = this.buildLambda(props.stage);
+    const usersS3Bucket = this.createUsersS3Bucket(props.stage);
+    const holotorLambda = this.buildLambda(props.stage, usersS3Bucket);
     videoResource.addMethod(
       "POST",
       this.createLambdaIntegration(holotorLambda),
@@ -166,7 +174,7 @@ export class HolotorApiStackStack extends Stack {
     });
   }
 
-  private buildLambda(stage: string) {
+  private buildLambda(stage: string, usersS3Bucket: Bucket) {
     return new NodejsFunction(this, `${stage}-holotor-api-lambda`, {
       architecture: Architecture.ARM_64,
       description: "Holotor API lambda",
@@ -177,11 +185,11 @@ export class HolotorApiStackStack extends Stack {
       logRetention: RetentionDays.THREE_DAYS,
       runtime: Runtime.NODEJS_16_X,
       timeout: Duration.seconds(10),
-      role: this.createLambdaBasicRoleWithManagedPolicy(stage),
+      role: this.createLambdaRole(stage, usersS3Bucket),
     });
   }
 
-  private createLambdaBasicRoleWithManagedPolicy(stage: string) {
+  private createLambdaRole(stage: string, usersS3Bucket: Bucket) {
     return new Role(this, `${stage}-holotor-api-lambda-role`, {
       assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
       managedPolicies: [
@@ -191,6 +199,17 @@ export class HolotorApiStackStack extends Stack {
           "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
         ),
       ],
+      inlinePolicies: {
+        UserVideosReadWritePolicy: new PolicyDocument({
+          statements: [
+            new PolicyStatement({
+              actions: ["s3:GetObject", "s3:PutObject"],
+              effect: Effect.ALLOW,
+              resources: [`arn:aws:s3:::${usersS3Bucket.bucketName}/*/videos/`],
+            }),
+          ],
+        }),
+      },
     });
   }
 
@@ -217,6 +236,18 @@ export class HolotorApiStackStack extends Stack {
       encryption: BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+  }
+
+  private createUsersS3Bucket(stage: string): Bucket {
+    return new Bucket(this, `${stage}-holotor-users-s3-bucket`, {
+      autoDeleteObjects: true,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      bucketName: `${stage}-holotor-users`,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      transferAcceleration: false, // can be turned on for production
     });
   }
 }

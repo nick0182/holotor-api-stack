@@ -3,7 +3,9 @@ import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
 const environment = process.env.ENVIRONMENT as string;
 
 export class DatabaseService {
-  constructor(private readonly dbClient: DynamoDBClient = new DynamoDBClient({})) {}
+  constructor(
+    private readonly dbClient: DynamoDBClient = new DynamoDBClient({})
+  ) {}
 
   async hasLastVideoByTimeAfter(
     userId: string,
@@ -18,7 +20,7 @@ export class DatabaseService {
         KeyConditionExpression: "user_id = :a AND video_retrieval_ts > :b",
         ExpressionAttributeValues: {
           ":a": { S: userId },
-          ":b": { N: afterMillis }
+          ":b": { N: afterMillis },
         },
       })
     );

@@ -6,22 +6,33 @@ import { DatabaseService } from "../services/DatabaseService";
 import { CognitoUser } from "../models/CognitoUser";
 import { getEpochMillisBeforeDay } from "../utils/Utils";
 
+const databaseService = new DatabaseService();
+
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyStructuredResultV2> => {
   console.log("EVENT: \n" + JSON.stringify(event, null, 2));
   const cognitoUser = fetchCognitoUser(event);
-  console.log(`Fetched cognito user: ${JSON.stringify(cognitoUser)}`);
+  const cognitoUserJSON = JSON.stringify(cognitoUser);
+  console.log(`Fetched user: ${cognitoUserJSON}`);
   const beforeWeekEpochMillis = getEpochMillisBeforeDay(7);
-  const databaseService = new DatabaseService();
   const hasLastVideo = await databaseService.hasLastVideoByTimeAfter(
     cognitoUser.id,
     beforeWeekEpochMillis.toString()
   );
-  console.log(`User has last video: ${hasLastVideo}`);
+  if (!hasLastVideo) {
+    console.log(
+      `Bonus video is not available. User: ${cognitoUserJSON}`
+    );
+    return {
+      statusCode: 403,
+      body: "Bonus video is not available",
+    };
+  }
+  console.log(`User has last video. User: ${cognitoUserJSON}`);
   return {
     statusCode: 200,
-    body: String(hasLastVideo),
+    body: "Bonus video downloadable link",
   };
 };
 
