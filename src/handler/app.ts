@@ -11,8 +11,9 @@ const databaseService = new DatabaseService();
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyStructuredResultV2> => {
-  console.log("EVENT: \n" + JSON.stringify(event, null, 2));
-  const cognitoUser = fetchCognitoUser(event);
+  const eventString = JSON.stringify(event, null, 2);
+  console.log("EVENT: \n" + eventString);
+  const cognitoUser = JSON.parse(eventString).user as CognitoUser;
   const cognitoUserJSON = JSON.stringify(cognitoUser);
   console.log(`Fetched user: ${cognitoUserJSON}`);
   const beforeWeekEpochMillis = getEpochMillisBeforeDay(7);
@@ -35,15 +36,3 @@ export const handler = async (
     body: "Bonus video downloadable link",
   };
 };
-
-function fetchCognitoUser(event: APIGatewayProxyEvent): CognitoUser {
-  const authClaims = event.requestContext.authorizer?.claims;
-  if (authClaims === undefined) {
-    throw new Error("No authClaims in event");
-  } else {
-    return {
-      id: authClaims.sub,
-      email: authClaims.email,
-    };
-  }
-}

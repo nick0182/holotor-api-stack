@@ -7,7 +7,8 @@ import {
   EndpointType,
   LogGroupLogDestination,
   MethodLoggingLevel,
-  StepFunctionsRestApi,
+  RestApi,
+  StepFunctionsIntegration,
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -50,66 +51,48 @@ export interface HolotorStackProps extends StackProps {
 export class HolotorApiStackStack extends Stack {
   constructor(scope: Construct, id: string, props: HolotorStackProps) {
     super(scope, id, props);
-    const holotorCognitoUserPool: UserPool = this.createCognitoUserPool(
-      props.stage
-    );
     const cognitoUserPoolAuthorizer = this.createCognitoAuthorizer(
-      holotorCognitoUserPool
+      this.createCognitoUserPool(props.stage)
     );
 
-    const usersS3Bucket = this.createUsersS3Bucket(props.stage);
-    const userHasLastVideoLambda = this.buildUserHasLastVideoLambda(
+    const userHasLastVideoLambda = this.createUserHasLastVideoLambda(
       props.stage,
-      usersS3Bucket
+      this.createUsersS3Bucket(props.stage)
     );
 
-    const internalServerErrorFailure = new Fail(
-      this,
-      `${props.stage}-holotor-user-bonus-videos-fail`,
-      {
-        cause: "Server error occurred while handling the request",
-        error: "Internal server error",
-        comment: "Handling errors after all retries",
-      }
-    );
-    const downloadableLinkResult = new Pass(
-      this,
-      `${props.stage}-holotor-user-bonus-videos-result`,
-      {
-        comment: "Bonus videos downloadable link is returned to client",
-      }
-    );
-    const userHasLastVideoTask = new tasks.LambdaInvoke(
-      this,
-      `${props.stage}-holotor-user-bonus-videos-start-task`,
-      {
-        lambdaFunction: userHasLastVideoLambda,
-        comment: "Check whether user is eligible for getting a new bonus video",
-      }
+    const userHasLastVideoTask = this.createUserHasLastVideoTask(
+      props.stage,
+      userHasLastVideoLambda
     );
     userHasLastVideoTask
       .addRetry()
-      .addCatch(internalServerErrorFailure)
-      .next(downloadableLinkResult);
+      .addCatch(this.createInternalServerErrorFailure(props.stage))
+      .next(this.createDownloadableLinkResult(props.stage));
 
-    const stateMachine = new StateMachine(
-      this,
-      `${props.stage}-holotor-user-bonus-videos-sm`,
-      {
-        definition: userHasLastVideoTask,
-        logs: {
-          destination: this.createLogGroup(
-            `${props.stage}-holotor-user-bonus-videos-sm-log-group`
-          ),
-          level: LogLevel.ALL,
-        },
-        stateMachineName: "user-bonus-video-sm",
-        stateMachineType: StateMachineType.EXPRESS,
-        timeout: Duration.seconds(10),
-      }
+    const stateMachine = this.createStateMachine(
+      props.stage,
+      userHasLastVideoTask
     );
 
-    this.createAPI(props.stage, stateMachine, cognitoUserPoolAuthorizer);
+    const bonusVideosAPI: RestApi = this.createAPI(props.stage);
+    const videoResource = bonusVideosAPI.root
+      .addResource("api")
+      .addResource("v1")
+      .addResource("videos")
+      .addResource("next");
+    videoResource.addMethod(
+      "POST",
+      StepFunctionsIntegration.startExecution(stateMachine, {
+        requestTemplates: {
+          "application/json": this.createInput(stateMachine.stateMachineArn),
+        },
+        timeout: Duration.seconds(10),
+      }),
+      {
+        authorizer: cognitoUserPoolAuthorizer,
+        authorizationType: AuthorizationType.COGNITO,
+      }
+    );
     const bonusVideosTable = this.createDynamoDBTable(props.stage);
     const bonusVideosS3Bucket = this.createBonusVideosS3Bucket(props.stage);
     bonusVideosTable.grantReadWriteData(userHasLastVideoLambda);
@@ -149,14 +132,9 @@ export class HolotorApiStackStack extends Stack {
     return holotorCognitoUserPool;
   }
 
-  private createAPI(
-    stage: string,
-    stateMachine: StateMachine,
-    authorizer: CognitoUserPoolsAuthorizer
-  ): StepFunctionsRestApi {
-    const id = `${stage}-holotor-user-bonus-videos-api`;
-    return new StepFunctionsRestApi(this, id, {
-      authorizer: true,
+  private createAPI(stage: string): RestApi {
+    const id = `${stage}-holotor-user-bonus-videos-api-gw`;
+    return new RestApi(this, id, {
       cloudWatchRole: true,
       deployOptions: {
         accessLogDestination: new LogGroupLogDestination(
@@ -170,16 +148,9 @@ export class HolotorApiStackStack extends Stack {
         throttlingBurstLimit: 10, // number of concurrent requests
         throttlingRateLimit: 100, // number of requests per second
       },
-      defaultMethodOptions: {
-        authorizer: authorizer,
-        authorizationType: AuthorizationType.COGNITO,
-      },
-      description: "User bonus videos REST API",
-      endpointConfiguration: {
-        types: [EndpointType.REGIONAL],
-      },
+      endpointTypes: [EndpointType.REGIONAL],
       restApiName: id,
-      stateMachine: stateMachine,
+      retainDeployments: false,
     });
   }
 
@@ -225,7 +196,7 @@ export class HolotorApiStackStack extends Stack {
     });
   }
 
-  private buildUserHasLastVideoLambda(stage: string, usersS3Bucket: Bucket) {
+  private createUserHasLastVideoLambda(stage: string, usersS3Bucket: Bucket) {
     return new NodejsFunction(this, `${stage}-holotor-api-lambda`, {
       architecture: Architecture.ARM_64,
       description: "Holotor API lambda",
@@ -237,6 +208,65 @@ export class HolotorApiStackStack extends Stack {
       runtime: Runtime.NODEJS_16_X,
       timeout: Duration.seconds(10),
       role: this.createLambdaRole(stage, usersS3Bucket),
+    });
+  }
+
+  private createInternalServerErrorFailure(stage: string): Fail {
+    return new Fail(this, `${stage}-holotor-user-bonus-videos-fail`, {
+      cause: "Server error occurred while handling the request",
+      error: "Internal server error",
+      comment: "Handling errors after all retries",
+    });
+  }
+
+  private createDownloadableLinkResult(stage: string): Pass {
+    return new Pass(this, `${stage}-holotor-user-bonus-videos-result`, {
+      comment: "Bonus videos downloadable link is returned to client",
+    });
+  }
+
+  private createUserHasLastVideoTask(
+    stage: string,
+    userHasLastVideoLambda: NodejsFunction
+  ): tasks.LambdaInvoke {
+    return new tasks.LambdaInvoke(
+      this,
+      `${stage}-holotor-user-bonus-videos-start-task`,
+      {
+        lambdaFunction: userHasLastVideoLambda,
+        comment: "Check whether user is eligible for getting a new bonus video",
+      }
+    );
+  }
+
+  private createStateMachine(
+    stage: string,
+    entryTask: tasks.LambdaInvoke
+  ): StateMachine {
+    return new StateMachine(this, `${stage}-holotor-user-bonus-videos-sm`, {
+      definition: entryTask,
+      logs: {
+        destination: this.createLogGroup(
+          `${stage}-holotor-user-bonus-videos-sm-log-group`
+        ),
+        level: LogLevel.ALL,
+      },
+      stateMachineName: "user-bonus-video-sm",
+      stateMachineType: StateMachineType.EXPRESS,
+      timeout: Duration.seconds(10),
+    });
+  }
+
+  private createInput(stateMachineArn: string): string {
+    const user = JSON.stringify({
+      user: {
+        id: "$context.authorizer.claims.sub",
+        email: "$context.authorizer.claims.email",
+      },
+    });
+    return JSON.stringify({
+      input: user,
+      stateMachineArn: stateMachineArn,
     });
   }
 
