@@ -28,6 +28,8 @@ import {
   UserPoolClientOptions,
 } from "aws-cdk-lib/aws-cognito";
 import {
+  Choice,
+  Condition,
   Fail,
   LogLevel,
   Pass,
@@ -64,14 +66,18 @@ export class HolotorApiStackStack extends Stack {
       this.createUsersS3Bucket(props.stage)
     );
 
+    const flowPass: Pass = this.createFlowPass(props.stage);
+    const flowFailure = this.createFlowFailure(props.stage);
+    const checkUserChoice = this.createCheckUserChoice(props.stage);
+    checkUserChoice
+      .when(Condition.numberEquals("$.statusCode", 200), flowPass)
+      .when(Condition.numberEquals("$.statusCode", 404), flowPass)
+      .otherwise(flowFailure);
     const userHasLastVideoTask = this.createUserHasLastVideoTask(
       props.stage,
       userHasLastVideoLambda
     );
-    userHasLastVideoTask
-      .addRetry()
-      .addCatch(this.createInternalServerErrorFailure(props.stage))
-      .next(this.createDownloadableLinkResult(props.stage));
+    userHasLastVideoTask.addRetry().addCatch(flowFailure).next(checkUserChoice);
 
     const stateMachine = this.createStateMachine(
       props.stage,
@@ -223,17 +229,27 @@ export class HolotorApiStackStack extends Stack {
     });
   }
 
-  private createInternalServerErrorFailure(stage: string): Fail {
+  private createCheckUserChoice(stage: string): Choice {
+    return new Choice(
+      this,
+      `${stage}-holotor-user-bonus-videos-check-user-choice`,
+      {
+        comment: "Route user based on previous check",
+      }
+    );
+  }
+
+  private createFlowFailure(stage: string): Fail {
     return new Fail(this, `${stage}-holotor-user-bonus-videos-fail`, {
       cause: "Server error occurred while handling the request",
       error: "Internal server error",
-      comment: "Handling errors after all retries",
+      comment: "Handling errors",
     });
   }
 
-  private createDownloadableLinkResult(stage: string): Pass {
-    return new Pass(this, `${stage}-holotor-user-bonus-videos-result`, {
-      comment: "Bonus videos downloadable link is returned to client",
+  private createFlowPass(stage: string): Pass {
+    return new Pass(this, `${stage}-holotor-user-bonus-videos-pass`, {
+      comment: "Pass result to end user",
     });
   }
 
@@ -243,7 +259,7 @@ export class HolotorApiStackStack extends Stack {
   ): tasks.LambdaInvoke {
     return new tasks.LambdaInvoke(
       this,
-      `${stage}-holotor-user-bonus-videos-start-task`,
+      `${stage}-holotor-user-bonus-videos-check-user`,
       {
         comment: "Check whether user is eligible for getting a new bonus video",
         lambdaFunction: userHasLastVideoLambda,
@@ -346,6 +362,6 @@ export class HolotorApiStackStack extends Stack {
   }
 
   private readResource(resourcePath: string): string {
-    return fs.readFileSync(path.join(__dirname, resourcePath), 'utf-8');
+    return fs.readFileSync(path.join(__dirname, resourcePath), "utf-8");
   }
 }

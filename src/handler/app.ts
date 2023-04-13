@@ -22,9 +22,7 @@ export const handler = async (
     beforeWeekEpochMillis.toString()
   );
   if (!hasLastVideo) {
-    console.log(
-      `Bonus video is not available. User: ${cognitoUserJSON}`
-    );
+    console.log(`Bonus video is not available. User: ${cognitoUserJSON}`);
     return {
       statusCode: 404,
       body: "Bonus video is not available",
@@ -33,6 +31,8 @@ export const handler = async (
   console.log(`User has last video. User: ${cognitoUserJSON}`);
   return {
     statusCode: 200,
-    body: "Bonus video downloadable link",
+    body: JSON.stringify({
+      userId: cognitoUser.id,
+    }),
   };
 };
