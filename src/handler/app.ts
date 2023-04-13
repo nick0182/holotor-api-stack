@@ -26,7 +26,7 @@ export const handler = async (
       `Bonus video is not available. User: ${cognitoUserJSON}`
     );
     return {
-      statusCode: 403,
+      statusCode: 404,
       body: "Bonus video is not available",
     };
   }

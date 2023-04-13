@@ -47,6 +47,13 @@ export interface HolotorStackProps extends StackProps {
   readonly stage: string;
 }
 
+const RESPONSE_TEMPLATE: { "application/json": string } = {
+  "application/json": "#set($result = $input.path('$.output'))\n" +
+      "#set($resultObj = $util.parseJson($result))\n" +
+      "#set($context.responseOverride.status = $resultObj.statusCode)\n" +
+      "$result"
+};
+
 // TODO: enable API GW caching in production
 export class HolotorApiStackStack extends Stack {
   constructor(scope: Construct, id: string, props: HolotorStackProps) {
@@ -83,6 +90,12 @@ export class HolotorApiStackStack extends Stack {
     videoResource.addMethod(
       "POST",
       StepFunctionsIntegration.startExecution(stateMachine, {
+        integrationResponses: [
+          {
+            statusCode: "200",
+            responseTemplates: RESPONSE_TEMPLATE
+          }
+        ],
         requestTemplates: {
           "application/json": this.createInput(stateMachine.stateMachineArn),
         },
@@ -233,8 +246,9 @@ export class HolotorApiStackStack extends Stack {
       this,
       `${stage}-holotor-user-bonus-videos-start-task`,
       {
-        lambdaFunction: userHasLastVideoLambda,
         comment: "Check whether user is eligible for getting a new bonus video",
+        lambdaFunction: userHasLastVideoLambda,
+        payloadResponseOnly: true
       }
     );
   }
