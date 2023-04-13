@@ -1,0 +1,20 @@
+#set ($bodyObj = $util.parseJson($input.body))
+#if ($bodyObj.status == "SUCCEEDED")
+    #set($result = $input.path('$.output'))
+    #set($resultObj = $util.parseJson($result))
+    #set($context.responseOverride.status = $resultObj.statusCode)
+    $result
+#elseif ($bodyObj.status == "FAILED")
+    #set($context.responseOverride.status = 500)
+    {
+        "cause": "$bodyObj.cause",
+        "error": "$bodyObj.error"
+    }
+#else
+    #set($unknownStatus = "Unknown status: " + $bodyObj.status)
+    #set($context.responseOverride.status = 500)
+    {
+        "cause": "Unexpected server error occurred",
+        "error": $unknownStatus
+    }
+#end

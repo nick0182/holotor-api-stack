@@ -42,22 +42,19 @@ import {
   Bucket,
   BucketEncryption,
 } from "aws-cdk-lib/aws-s3";
+import * as fs from "fs";
 
 export interface HolotorStackProps extends StackProps {
   readonly stage: string;
 }
 
-const RESPONSE_TEMPLATE: { "application/json": string } = {
-  "application/json": "#set($result = $input.path('$.output'))\n" +
-      "#set($resultObj = $util.parseJson($result))\n" +
-      "#set($context.responseOverride.status = $resultObj.statusCode)\n" +
-      "$result"
-};
-
 // TODO: enable API GW caching in production
 export class HolotorApiStackStack extends Stack {
   constructor(scope: Construct, id: string, props: HolotorStackProps) {
     super(scope, id, props);
+    const responseTemplate = this.readResource(
+      "resources/response-template.txt"
+    );
     const cognitoUserPoolAuthorizer = this.createCognitoAuthorizer(
       this.createCognitoUserPool(props.stage)
     );
@@ -93,8 +90,10 @@ export class HolotorApiStackStack extends Stack {
         integrationResponses: [
           {
             statusCode: "200",
-            responseTemplates: RESPONSE_TEMPLATE
-          }
+            responseTemplates: {
+              "application/json": responseTemplate,
+            },
+          },
         ],
         requestTemplates: {
           "application/json": this.createInput(stateMachine.stateMachineArn),
@@ -248,7 +247,7 @@ export class HolotorApiStackStack extends Stack {
       {
         comment: "Check whether user is eligible for getting a new bonus video",
         lambdaFunction: userHasLastVideoLambda,
-        payloadResponseOnly: true
+        payloadResponseOnly: true,
       }
     );
   }
@@ -344,5 +343,9 @@ export class HolotorApiStackStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
       transferAcceleration: false, // can be turned on for production
     });
+  }
+
+  private readResource(resourcePath: string): string {
+    return fs.readFileSync(path.join(__dirname, resourcePath), 'utf-8');
   }
 }
