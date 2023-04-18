@@ -13,14 +13,7 @@ import {
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
-import {
-  Effect,
-  ManagedPolicy,
-  PolicyDocument,
-  PolicyStatement,
-  Role,
-  ServicePrincipal,
-} from "aws-cdk-lib/aws-iam";
+import { ManagedPolicy, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
   AccountRecovery,
   UserPool,
@@ -61,23 +54,37 @@ export class HolotorApiStackStack extends Stack {
       this.createCognitoUserPool(props.stage)
     );
 
+    this.createUsersS3Bucket(props.stage);
+    this.createBonusVideosS3Bucket(props.stage);
+
+    const lambdaBasicRole: Role = this.createLambdaBasicRole(props.stage);
+
     const userHasLastVideoLambda = this.createUserHasLastVideoLambda(
       props.stage,
-      this.createUsersS3Bucket(props.stage)
+      lambdaBasicRole
     );
+    const bonusVideoRetrieverLambda: NodejsFunction =
+      this.createBonusVideoRetrieverLambda(props.stage, lambdaBasicRole);
 
     const flowPass: Pass = this.createFlowPass(props.stage);
     const flowFailure = this.createFlowFailure(props.stage);
-    const checkUserChoice = this.createCheckUserChoice(props.stage);
-    checkUserChoice
-      .when(Condition.numberEquals("$.statusCode", 200), flowPass)
-      .when(Condition.numberEquals("$.statusCode", 404), flowPass)
-      .otherwise(flowFailure);
-    const userHasLastVideoTask = this.createUserHasLastVideoTask(
-      props.stage,
+    const userHasLastVideoTask = this.createLambdaTask(
+      `${props.stage}-holotor-ubv-check-user`,
+      "Check whether user is eligible for getting a new bonus video",
       userHasLastVideoLambda
     );
+    const bonusVideoRetrieverTask: tasks.LambdaInvoke = this.createLambdaTask(
+      `${props.stage}-holotor-ubv-retrieve-bonus-video`,
+      "Retrieve and remove a bonus video from bonus-videos table",
+      bonusVideoRetrieverLambda
+    );
+    const checkUserChoice = this.createCheckUserChoice(props.stage);
+    checkUserChoice
+        .when(Condition.numberEquals("$.statusCode", 200), bonusVideoRetrieverTask)
+        .when(Condition.numberEquals("$.statusCode", 404), flowPass)
+        .otherwise(flowFailure);
     userHasLastVideoTask.addRetry().addCatch(flowFailure).next(checkUserChoice);
+    bonusVideoRetrieverTask.addRetry().addCatch(flowFailure).next(flowPass);
 
     const stateMachine = this.createStateMachine(
       props.stage,
@@ -111,10 +118,10 @@ export class HolotorApiStackStack extends Stack {
         authorizationType: AuthorizationType.COGNITO,
       }
     );
-    const bonusVideosTable = this.createDynamoDBTable(props.stage);
-    const bonusVideosS3Bucket = this.createBonusVideosS3Bucket(props.stage);
-    bonusVideosTable.grantReadWriteData(userHasLastVideoLambda);
-    bonusVideosS3Bucket.grantRead(userHasLastVideoLambda);
+    const userBonusVideosTable = this.createUserBonusVideosTable(props.stage);
+    userBonusVideosTable.grantReadData(userHasLastVideoLambda);
+    const bonusVideosTable: Table = this.createBonusVideosTable(props.stage);
+    bonusVideosTable.grantReadWriteData(bonusVideoRetrieverLambda);
   }
 
   private createCognitoUserPool(stage: string) {
@@ -156,7 +163,9 @@ export class HolotorApiStackStack extends Stack {
       cloudWatchRole: true,
       deployOptions: {
         accessLogDestination: new LogGroupLogDestination(
-          this.createLogGroup(`${stage}-holotor-api-log-group`)
+          this.createLogGroup(
+            `${stage}-holotor-user-bonus-videos-api-log-group`
+          )
         ),
         accessLogFormat: AccessLogFormat.jsonWithStandardFields(),
         dataTraceEnabled: true, // for dev environment only
@@ -214,33 +223,53 @@ export class HolotorApiStackStack extends Stack {
     });
   }
 
-  private createUserHasLastVideoLambda(stage: string, usersS3Bucket: Bucket) {
-    return new NodejsFunction(this, `${stage}-holotor-api-lambda`, {
+  private createUserHasLastVideoLambda(stage: string, lambdaRole: Role) {
+    return new NodejsFunction(this, `${stage}-holotor-ubv-check-user-lambda`, {
       architecture: Architecture.ARM_64,
-      description: "Holotor API lambda",
+      description:
+        "Lambda for checking if the user is eligible for getting a new bonus video",
       environment: {
         ENVIRONMENT: stage,
       },
-      entry: path.join(__dirname, `/../src/handler/app.ts`),
+      entry: path.join(__dirname, `/../src/handler/checkUser.ts`),
       logRetention: RetentionDays.THREE_DAYS,
       runtime: Runtime.NODEJS_16_X,
       timeout: Duration.seconds(10),
-      role: this.createLambdaRole(stage, usersS3Bucket),
+      role: lambdaRole,
     });
   }
 
-  private createCheckUserChoice(stage: string): Choice {
-    return new Choice(
+  private createBonusVideoRetrieverLambda(
+    stage: string,
+    lambdaRole: Role
+  ): NodejsFunction {
+    return new NodejsFunction(
       this,
-      `${stage}-holotor-user-bonus-videos-check-user-choice`,
+      `${stage}-holotor-ubv-retrieve-bonus-video-lambda`,
       {
-        comment: "Route user based on previous check",
+        architecture: Architecture.ARM_64,
+        description:
+          "Lambda for polling a bonus video from DynamoDB 'bonus-videos' table",
+        environment: {
+          ENVIRONMENT: stage,
+        },
+        entry: path.join(__dirname, `/../src/handler/pollBonusVideo.ts`),
+        logRetention: RetentionDays.THREE_DAYS,
+        runtime: Runtime.NODEJS_16_X,
+        timeout: Duration.seconds(10),
+        role: lambdaRole,
       }
     );
   }
 
+  private createCheckUserChoice(stage: string): Choice {
+    return new Choice(this, `${stage}-holotor-ubv-check-user-choice`, {
+      comment: "Route user based on previous check",
+    });
+  }
+
   private createFlowFailure(stage: string): Fail {
-    return new Fail(this, `${stage}-holotor-user-bonus-videos-fail`, {
+    return new Fail(this, `${stage}-holotor-ubv-fail`, {
       cause: "Server error occurred while handling the request",
       error: "Internal server error",
       comment: "Handling errors",
@@ -248,39 +277,34 @@ export class HolotorApiStackStack extends Stack {
   }
 
   private createFlowPass(stage: string): Pass {
-    return new Pass(this, `${stage}-holotor-user-bonus-videos-pass`, {
+    return new Pass(this, `${stage}-holotor-ubv-pass`, {
       comment: "Pass result to end user",
     });
   }
 
-  private createUserHasLastVideoTask(
-    stage: string,
-    userHasLastVideoLambda: NodejsFunction
+  private createLambdaTask(
+    id: string,
+    comment: string,
+    lambdaFunction: NodejsFunction
   ): tasks.LambdaInvoke {
-    return new tasks.LambdaInvoke(
-      this,
-      `${stage}-holotor-user-bonus-videos-check-user`,
-      {
-        comment: "Check whether user is eligible for getting a new bonus video",
-        lambdaFunction: userHasLastVideoLambda,
-        payloadResponseOnly: true,
-      }
-    );
+    return new tasks.LambdaInvoke(this, id, {
+      comment: comment,
+      lambdaFunction: lambdaFunction,
+      payloadResponseOnly: true,
+    });
   }
 
   private createStateMachine(
     stage: string,
     entryTask: tasks.LambdaInvoke
   ): StateMachine {
-    return new StateMachine(this, `${stage}-holotor-user-bonus-videos-sm`, {
+    return new StateMachine(this, `${stage}-holotor-ubv-sm`, {
       definition: entryTask,
       logs: {
-        destination: this.createLogGroup(
-          `${stage}-holotor-user-bonus-videos-sm-log-group`
-        ),
+        destination: this.createLogGroup(`${stage}-holotor-ubv-sm-log-group`),
         level: LogLevel.ALL,
       },
-      stateMachineName: "user-bonus-video-sm",
+      stateMachineName: "user-bonus-video-state-machine",
       stateMachineType: StateMachineType.EXPRESS,
       timeout: Duration.seconds(10),
     });
@@ -299,31 +323,31 @@ export class HolotorApiStackStack extends Stack {
     });
   }
 
-  private createLambdaRole(stage: string, usersS3Bucket: Bucket) {
-    return new Role(this, `${stage}-holotor-api-lambda-role`, {
+  private createLambdaBasicRole(stage: string): Role {
+    return new Role(this, `${stage}-holotor-api-lambda-basic-role`, {
       assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
       managedPolicies: [
         ManagedPolicy.fromManagedPolicyArn(
           this,
-          `${stage}-holotor-api-lambda-role-policy`,
+          `${stage}-holotor-api-lambda-basic-role-policy`,
           "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
         ),
       ],
-      inlinePolicies: {
-        UserVideosReadWritePolicy: new PolicyDocument({
-          statements: [
-            new PolicyStatement({
-              actions: ["s3:GetObject", "s3:PutObject"],
-              effect: Effect.ALLOW,
-              resources: [`arn:aws:s3:::${usersS3Bucket.bucketName}/*/videos/`],
-            }),
-          ],
-        }),
-      },
+      // inlinePolicies: {
+      //   UserVideosReadWritePolicy: new PolicyDocument({
+      //     statements: [
+      //       new PolicyStatement({
+      //         actions: ["s3:GetObject", "s3:PutObject"],
+      //         effect: Effect.ALLOW,
+      //         resources: [`arn:aws:s3:::${usersS3Bucket.bucketName}/*/videos/`],
+      //       }),
+      //     ],
+      //   }),
+      // },
     });
   }
 
-  private createDynamoDBTable(stage: string) {
+  private createUserBonusVideosTable(stage: string): Table {
     return new Table(this, `${stage}-holotor-user-bonus-videos-table`, {
       partitionKey: {
         name: "user_id",
@@ -335,6 +359,17 @@ export class HolotorApiStackStack extends Stack {
         type: AttributeType.NUMBER,
       },
       tableName: `${stage}-user-bonus-videos`,
+    });
+  }
+
+  private createBonusVideosTable(stage: string): Table {
+    return new Table(this, `${stage}-holotor-bonus-videos-table`, {
+      partitionKey: {
+        name: "video_id",
+        type: AttributeType.STRING,
+      },
+      removalPolicy: RemovalPolicy.DESTROY,
+      tableName: `${stage}-bonus-videos`,
     });
   }
 
