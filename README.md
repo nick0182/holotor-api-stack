@@ -15,3 +15,5 @@ The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
 ## Commands
 - `aws dynamodb list-tables --profile dynamo-db-local --endpoint http://localhost:8000 --region us-west-2` connect to local DynamoDB
+- `aws dynamodb create-table --table-name dev-bonus-videos --attribute-definitions '[{\"AttributeName\": \"video_id\", \"AttributeType\": \"S\"}]' --key-schema '[{\"Attribut
+  eName\": \"video_id\", \"KeyType\": \"HASH\"}]' --provisioned-throughput '{\"ReadCapacityUnits\": 5, \"WriteCapacityUnits\": 5}' --profile dynamo-db-local --endpoint http://localhost:8000 --region us-west-2` create table

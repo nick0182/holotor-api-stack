@@ -1,6 +1,6 @@
 import { AttributeValue } from "@aws-sdk/client-dynamodb";
 
-export class UserVideos {
+export class UserVideo {
   private readonly user_id: AttributeValue.SMember;
   private readonly video_retrieval_ts: AttributeValue.NMember;
   private readonly video_id?: AttributeValue.SMember;
