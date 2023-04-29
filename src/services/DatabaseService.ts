@@ -1,7 +1,9 @@
 import {
+  DeleteItemCommand,
   DynamoDBClient,
   QueryCommand,
   ReturnConsumedCapacity,
+  ReturnValue,
   ScanCommand,
 } from "@aws-sdk/client-dynamodb";
 
@@ -53,11 +55,37 @@ export class DatabaseService {
       .then((res) => {
         console.log(`Read bonus videos response: ${JSON.stringify(res)}`);
         const items = res.Items;
-        if (items == undefined || items.length == 0) {
+        if (!items || items.length == 0) {
           console.error("No items found in bonus videos table");
           return undefined;
         }
         return items[0][bonusVideosTableKey]?.S;
+      });
+  }
+
+  async deleteBonusVideo(video_id: string): Promise<string | undefined> {
+    console.log(`Deleting bonus video: ${video_id}`);
+    return this.dbClient
+      .send(
+        new DeleteItemCommand({
+          TableName: `${environment}-bonus-videos`,
+          Key: {
+            video_id: {
+              S: video_id,
+            },
+          },
+          ReturnValues: ReturnValue.ALL_OLD,
+          ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
+        })
+      )
+      .then((res) => {
+        console.log(`Delete bonus video response: ${JSON.stringify(res)}`);
+        const itemAttributes = res.Attributes;
+        if (!itemAttributes) {
+          console.error(`No item found for deletion by video id: ${video_id}`);
+          return undefined;
+        }
+        return video_id;
       });
   }
 }

@@ -152,9 +152,7 @@ describe("Database service tests", () => {
 
       // ------------------------------------ Assert ----------------------------------------
 
-      await expect(databaseService.readBonusVideo()).resolves.toBe(
-        undefined
-      );
+      await expect(databaseService.readBonusVideo()).resolves.toBe(undefined);
 
       // ------------------------------------ Cleanup ----------------------------------------
 
@@ -176,6 +174,70 @@ describe("Database service tests", () => {
           `(${mockVideoId1}|${mockVideoId2}|${mockVideoId3})`
         )
       );
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteTable(table);
+    });
+  });
+
+  describe("Test delete bonus video", () => {
+    const table: Table = "bonus-videos";
+
+    test("should throw exception when there is no existing table", async () => {
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        databaseService.deleteBonusVideo(mockVideoId1)
+      ).rejects.toThrowError(ResourceNotFoundException);
+    });
+
+    test("should return undefined when table contains no entries", async () => {
+      // ------------------------------------ Arrange -----------------------------------------
+
+      await createTable(table);
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        databaseService.deleteBonusVideo(mockVideoId1)
+      ).resolves.toBe(undefined);
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteTable(table);
+    });
+
+    test("should return undefined when deleting non-existent entry", async () => {
+      // ------------------------------------ Arrange -----------------------------------------
+
+      await createTable(table);
+      await putItem(new Video(mockVideoId2).toRecord(), table);
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        databaseService.deleteBonusVideo(mockVideoId1)
+      ).resolves.toBe(undefined);
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteTable(table);
+    });
+
+    test("should return video id when deleting existing entry", async () => {
+      // ------------------------------------ Arrange -----------------------------------------
+
+      await createTable(table);
+      await putItem(new Video(mockVideoId1).toRecord(), table);
+      await putItem(new Video(mockVideoId2).toRecord(), table);
+      await putItem(new Video(mockVideoId3).toRecord(), table);
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        databaseService.deleteBonusVideo(mockVideoId1)
+      ).resolves.toBe(mockVideoId1);
 
       // ------------------------------------ Cleanup ----------------------------------------
 
