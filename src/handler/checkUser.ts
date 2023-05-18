@@ -4,9 +4,10 @@ import {
 } from "aws-lambda";
 import { DatabaseService } from "../services/DatabaseService";
 import { CognitoUser } from "../models/CognitoUser";
-import { getEpochMillisBeforeDay } from "../utils/Utils";
+import { getEpochMillisBeforeDay } from "../utils/utils";
 
 const databaseService = new DatabaseService();
+const bonusTimeDays = 7;
 
 export const handler = async (
   event: APIGatewayProxyEvent
@@ -16,19 +17,22 @@ export const handler = async (
   const cognitoUser = JSON.parse(eventString).user as CognitoUser;
   const cognitoUserJSON = JSON.stringify(cognitoUser);
   console.log(`Fetched user: ${cognitoUserJSON}`);
-  const beforeWeekEpochMillis = getEpochMillisBeforeDay(7);
+  const timestamp = getEpochMillisBeforeDay(bonusTimeDays);
   const hasLastVideo = await databaseService.hasLastVideoByTimeAfter(
     cognitoUser.id,
-    beforeWeekEpochMillis.toString()
+    timestamp.toString()
   );
-  if (!hasLastVideo) {
-    console.log(`Bonus video is not available. User: ${cognitoUserJSON}`);
+  if (hasLastVideo) {
+    console.log(
+      `A new bonus video is not available to user because the last bonus video was received in ${bonusTimeDays} days. 
+      User: ${cognitoUserJSON}`
+    );
     return {
       statusCode: 404,
-      body: "Bonus video is not available",
+      body: "Bonus video is not available yet",
     };
   }
-  console.log(`User has last video. User: ${cognitoUserJSON}`);
+  console.log(`A new bonus video is available to user: ${cognitoUserJSON}`);
   return {
     statusCode: 200,
     body: JSON.stringify({

@@ -26,6 +26,7 @@ import {
   Fail,
   LogLevel,
   Pass,
+  RetryProps,
   StateMachine,
   StateMachineType,
 } from "aws-cdk-lib/aws-stepfunctions";
@@ -59,15 +60,19 @@ export class HolotorApiStackStack extends Stack {
 
     const lambdaBasicRole: Role = this.createLambdaBasicRole(props.stage);
 
-    const userHasLastVideoLambda = this.createUserHasLastVideoLambda(
-      props.stage,
-      lambdaBasicRole
-    );
+    const userHasLastVideoLambda: NodejsFunction =
+      this.createUserHasLastVideoLambda(props.stage, lambdaBasicRole);
     const bonusVideoRetrieverLambda: NodejsFunction =
       this.createBonusVideoRetrieverLambda(props.stage, lambdaBasicRole);
+    const copyBonusVideoSourceLambda: NodejsFunction =
+      this.createCopyBonusVideoSourceLambda(props.stage, lambdaBasicRole);
 
     const flowPass: Pass = this.createFlowPass(props.stage);
-    const flowFailure = this.createFlowFailure(props.stage);
+    const flowFailure: Fail = this.createFlowFailure(props.stage);
+    const userHasLastVideoRetry: RetryProps =
+      this.createUserHasLastVideoRetry();
+    const bonusVideoRetrieverRetry: RetryProps =
+      this.createBonusVideoRetrieverRetry();
     const userHasLastVideoTask = this.createLambdaTask(
       `${props.stage}-holotor-ubv-check-user`,
       "Check whether user is eligible for getting a new bonus video",
@@ -78,13 +83,27 @@ export class HolotorApiStackStack extends Stack {
       "Retrieve and remove a bonus video from bonus-videos table",
       bonusVideoRetrieverLambda
     );
+    const copyBonusVideoTask: tasks.LambdaInvoke = this.createLambdaTask(
+      `${props.stage}-holotor-ubv-copy-bonus-video-source`,
+      "Copy bonus video source to user's bucket",
+      copyBonusVideoSourceLambda
+    );
     const checkUserChoice = this.createCheckUserChoice(props.stage);
     checkUserChoice
-        .when(Condition.numberEquals("$.statusCode", 200), bonusVideoRetrieverTask)
-        .when(Condition.numberEquals("$.statusCode", 404), flowPass)
-        .otherwise(flowFailure);
-    userHasLastVideoTask.addRetry().addCatch(flowFailure).next(checkUserChoice);
-    bonusVideoRetrieverTask.addRetry().addCatch(flowFailure).next(flowPass);
+      .when(
+        Condition.numberEquals("$.statusCode", 200),
+        bonusVideoRetrieverTask
+      )
+      .when(Condition.numberEquals("$.statusCode", 404), flowPass)
+      .otherwise(flowFailure);
+    userHasLastVideoTask
+      .addRetry(userHasLastVideoRetry)
+      .addCatch(flowFailure)
+      .next(checkUserChoice);
+    bonusVideoRetrieverTask
+      .addRetry(bonusVideoRetrieverRetry)
+      .addCatch(flowFailure)
+      .next(flowPass);
 
     const stateMachine = this.createStateMachine(
       props.stage,
@@ -262,6 +281,29 @@ export class HolotorApiStackStack extends Stack {
     );
   }
 
+  private createCopyBonusVideoSourceLambda(
+    stage: string,
+    lambdaRole: Role
+  ): NodejsFunction {
+    return new NodejsFunction(
+      this,
+      `${stage}-holotor-ubv-copy-bonus-video-source-lambda`,
+      {
+        architecture: Architecture.ARM_64,
+        description:
+          "Lambda for copying a bonus video from shared s3 bucket to user's s3 bucket",
+        environment: {
+          ENVIRONMENT: stage,
+        },
+        entry: path.join(__dirname, `/../src/handler/copyBonusVideoSource.ts`),
+        logRetention: RetentionDays.THREE_DAYS,
+        runtime: Runtime.NODEJS_16_X,
+        timeout: Duration.seconds(10),
+        role: lambdaRole,
+      }
+    );
+  }
+
   private createCheckUserChoice(stage: string): Choice {
     return new Choice(this, `${stage}-holotor-ubv-check-user-choice`, {
       comment: "Route user based on previous check",
@@ -274,6 +316,32 @@ export class HolotorApiStackStack extends Stack {
       error: "Internal server error",
       comment: "Handling errors",
     });
+  }
+
+  private createUserHasLastVideoRetry(): RetryProps {
+    return {
+      errors: [
+        "Lambda.ClientExecutionTimeoutException",
+        "Lambda.ServiceException",
+        "Lambda.AWSLambdaException",
+        "Lambda.SdkClientException",
+        "States.TaskFailed",
+      ],
+      maxAttempts: 2
+    };
+  }
+
+  private createBonusVideoRetrieverRetry(): RetryProps {
+    return {
+      errors: [
+        "Lambda.ClientExecutionTimeoutException",
+        "Lambda.ServiceException",
+        "Lambda.AWSLambdaException",
+        "Lambda.SdkClientException",
+        "BonusVideoAlreadyDeletedException",
+      ],
+      maxAttempts: 2
+    };
   }
 
   private createFlowPass(stage: string): Pass {
@@ -291,6 +359,7 @@ export class HolotorApiStackStack extends Stack {
       comment: comment,
       lambdaFunction: lambdaFunction,
       payloadResponseOnly: true,
+      retryOnServiceExceptions: false
     });
   }
 
