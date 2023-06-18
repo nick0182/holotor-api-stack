@@ -3,7 +3,7 @@
     #set($result = $input.path('$.output'))
     #set($resultObj = $util.parseJson($result))
     #set($context.responseOverride.status = $resultObj.statusCode)
-    $result
+    $resultObj.body
 #elseif ($bodyObj.status == "FAILED")
     #set($context.responseOverride.status = 500)
     {

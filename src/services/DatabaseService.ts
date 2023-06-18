@@ -63,15 +63,15 @@ export class DatabaseService {
       });
   }
 
-  async deleteBonusVideo(video_id: string): Promise<string | undefined> {
-    console.log(`Deleting bonus video: ${video_id}`);
+  async deleteBonusVideo(videoId: string): Promise<string | undefined> {
+    console.log(`Deleting bonus video: ${videoId}`);
     return this.dbClient
       .send(
         new DeleteItemCommand({
           TableName: `${environment}-bonus-videos`,
           Key: {
             video_id: {
-              S: video_id,
+              S: videoId,
             },
           },
           ReturnValues: ReturnValue.ALL_OLD,
@@ -82,10 +82,10 @@ export class DatabaseService {
         console.log(`Delete bonus video response: ${JSON.stringify(res)}`);
         const itemAttributes = res.Attributes;
         if (!itemAttributes) {
-          console.error(`No item found for deletion by video id: ${video_id}`);
+          console.error(`No item found for deletion by video id: ${videoId}`);
           return undefined;
         }
-        return video_id;
+        return videoId;
       });
   }
 }

@@ -11,4 +11,5 @@ cdk.out
 cdk-deploy-to.bat
 cdk-deploy-to.ps1
 /test/resources/dynamodb/*
+/test/resources/localstack/*
 /notes

@@ -18,10 +18,10 @@ import {
   PutItemCommand,
   ResourceNotFoundException,
 } from "@aws-sdk/client-dynamodb";
-import { DatabaseService } from "../../src/services/DatabaseService";
-import { UserVideo } from "../../src/models/UserVideo";
-import { getEpochMillisBeforeDay } from "../../src/utils/Utils";
-import { Video } from "../../src/models/Video";
+import { DatabaseService } from "../../../src/services/DatabaseService";
+import { UserVideo } from "../../../src/models/UserVideo";
+import { getEpochMillisBeforeDay } from "../../../src/utils/utils";
+import { Video } from "../../../src/models/Video";
 
 const dbClient = new DynamoDBClient(clientConfig);
 
