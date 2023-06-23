@@ -53,9 +53,9 @@ export const createBonusVideosBucketCommand: CreateBucketCommand =
     Bucket: bonusVideosBucket,
   });
 
-export const createUserVideosBucketCommand: CreateBucketCommand =
+export const createUserBonusVideosBucketCommand: CreateBucketCommand =
   new CreateBucketCommand({
-    Bucket: userVideosBucket,
+    Bucket: userVideosBucket
   });
 
 export const deleteBonusVideosBucketCommand: DeleteBucketCommand =
@@ -63,7 +63,7 @@ export const deleteBonusVideosBucketCommand: DeleteBucketCommand =
     Bucket: bonusVideosBucket,
   });
 
-export const deleteUserVideosBucketCommand: DeleteBucketCommand =
+export const deleteUserBonusVideosBucketCommand: DeleteBucketCommand =
   new DeleteBucketCommand({
     Bucket: userVideosBucket,
   });
@@ -76,19 +76,29 @@ export const putBonusVideoCommand: PutObjectCommand = new PutObjectCommand({
   Body: fs.readFileSync(path.join(__dirname, "../../resources/s3/test video.mp4"))
 });
 
+export const putUserBonusVideoCommand: PutObjectCommand = new PutObjectCommand({
+  Bucket: userVideosBucket,
+  Key: userVideoKey,
+  Metadata: videoNameMetadata,
+  ContentType: videoContentType,
+  Body: fs.readFileSync(
+    path.join(__dirname, "../../resources/s3/test video.mp4")
+  ),
+});
+
 export const deleteBonusVideoCommand: DeleteObjectCommand =
   new DeleteObjectCommand({
     Bucket: bonusVideosBucket,
     Key: videoId,
   });
 
-export const deleteUserVideoCommand: DeleteObjectCommand =
+export const deleteUserBonusVideoCommand: DeleteObjectCommand =
   new DeleteObjectCommand({
     Bucket: userVideosBucket,
     Key: userVideoKey,
   });
 
-export const headUserVideoCommand: HeadObjectCommand =
+export const headUserBonusVideoCommand: HeadObjectCommand =
   new HeadObjectCommand({
     Bucket: userVideosBucket,
     Key:userVideoKey

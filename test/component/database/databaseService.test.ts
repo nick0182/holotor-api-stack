@@ -244,6 +244,51 @@ describe("Database service tests", () => {
       await deleteTable(table);
     });
   });
+
+  describe("Test store bonus video", () => {
+    const table: Table = "bonus-videos";
+    
+    test("should throw exception when there is no existing table", async () => {
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        databaseService.storeBonusVideo(mockVideoId1)
+      ).rejects.toThrowError(ResourceNotFoundException);
+    });
+
+    test("should succeed when overwriting existing entry", async () => {
+      // ------------------------------------ Arrange -----------------------------------------
+
+      await createTable(table);
+      await putItem(new Video(mockVideoId1).toRecord(), table);
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(databaseService.storeBonusVideo(mockVideoId1)).resolves.toBe(
+        undefined
+      );
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteTable(table);
+    });
+
+    test("should succeed when storing a new entry", async () => {
+      // ------------------------------------ Arrange -----------------------------------------
+
+      await createTable(table);
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(databaseService.storeBonusVideo(mockVideoId1)).resolves.toBe(
+        undefined
+      );
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteTable(table);
+    });
+  });
 });
 
 function createTable(table: Table) {

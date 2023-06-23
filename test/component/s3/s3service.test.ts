@@ -1,16 +1,17 @@
-import { S3Client, S3ServiceException } from "@aws-sdk/client-s3";
+import { NotFound, S3Client, S3ServiceException } from "@aws-sdk/client-s3";
 import {
   bonusVideoCopiedToUserResult,
   clientConfig,
   createBonusVideosBucketCommand,
-  createUserVideosBucketCommand,
+  createUserBonusVideosBucketCommand,
   deleteBonusVideoCommand,
   deleteBonusVideosBucketCommand,
-  deleteUserVideoCommand,
-  deleteUserVideosBucketCommand,
-  headUserVideoCommand,
+  deleteUserBonusVideoCommand,
+  deleteUserBonusVideosBucketCommand,
+  headUserBonusVideoCommand,
   noContentResult,
   putBonusVideoCommand,
+  putUserBonusVideoCommand,
   successResult,
   userId,
   videoId,
@@ -71,7 +72,7 @@ describe("S3 service test", () => {
 
       await createBonusVideosBucket();
       await putBonusVideo();
-      await createUserVideosBucket();
+      await createUserBonusVideosBucket();
 
       // ------------------------------------ Act -------------------------------------------
 
@@ -81,14 +82,65 @@ describe("S3 service test", () => {
 
       // ------------------------------------ Assert ----------------------------------------
 
-      await checkVideoCopiedToUser();
+      await checkBonusVideoCopiedToUser();
 
       // ------------------------------------ Cleanup ----------------------------------------
 
       await deleteBonusVideo();
       await deleteBonusVideosBucket();
-      await deleteUserVideo();
-      await deleteUserVideosBucket();
+      await deleteUserBonusVideo();
+      await deleteUserBonusVideosBucket();
+    });
+  });
+
+  describe("Test delete user's bonus video", () => {
+    test("Should throw exception when there is no bucket", async () => {
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        s3Service.deleteUserBonusVideo(videoId, userId)
+      ).rejects.toThrowError(S3ServiceException);
+    });
+
+    test("Should succeed when there is no object", async () => {
+      // ------------------------------------ Arrange ---------------------------------------
+
+      await createUserBonusVideosBucket();
+
+      // ------------------------------------ Act -------------------------------------------
+
+      await expect(
+        s3Service.deleteUserBonusVideo(videoId, userId)
+      ).resolves.toBeUndefined();
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await checkUserBonusVideoDeleted();
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteUserBonusVideosBucket();
+    });
+
+    test("Should succeed when there is existing object", async () => {
+      // ------------------------------------ Arrange ---------------------------------------
+
+      await createUserBonusVideosBucket();
+      await putUserBonusVideo();
+
+      // ------------------------------------ Act -------------------------------------------
+
+      await expect(
+        s3Service.deleteUserBonusVideo(videoId, userId)
+      ).resolves.toBeUndefined();
+
+      // ------------------------------------ Assert ----------------------------------------
+
+      await checkUserBonusVideoDeleted();
+
+      // ------------------------------------ Cleanup ----------------------------------------
+
+      await deleteUserBonusVideosBucket();
     });
   });
 });
@@ -99,10 +151,16 @@ async function createBonusVideosBucket(): Promise<void> {
   ).resolves.toMatchObject(successResult);
 }
 
-async function createUserVideosBucket(): Promise<void> {
+async function createUserBonusVideosBucket(): Promise<void> {
   return expect(
-    s3Client.send(createUserVideosBucketCommand)
+    s3Client.send(createUserBonusVideosBucketCommand)
   ).resolves.toMatchObject(successResult);
+}
+
+async function putUserBonusVideo(): Promise<void> {
+  return expect(s3Client.send(putUserBonusVideoCommand)).resolves.toMatchObject(
+    successResult
+  );
 }
 
 async function deleteBonusVideosBucket(): Promise<void> {
@@ -111,9 +169,9 @@ async function deleteBonusVideosBucket(): Promise<void> {
   ).resolves.toMatchObject(noContentResult);
 }
 
-async function deleteUserVideosBucket(): Promise<void> {
+async function deleteUserBonusVideosBucket(): Promise<void> {
   return expect(
-    s3Client.send(deleteUserVideosBucketCommand)
+    s3Client.send(deleteUserBonusVideosBucketCommand)
   ).resolves.toMatchObject(noContentResult);
 }
 
@@ -129,14 +187,20 @@ async function deleteBonusVideo(): Promise<void> {
   );
 }
 
-async function deleteUserVideo(): Promise<void> {
-  return expect(s3Client.send(deleteUserVideoCommand)).resolves.toMatchObject(
+async function deleteUserBonusVideo(): Promise<void> {
+  return expect(s3Client.send(deleteUserBonusVideoCommand)).resolves.toMatchObject(
     noContentResult
   );
 }
 
-async function checkVideoCopiedToUser(): Promise<void> {
-  return expect(s3Client.send(headUserVideoCommand)).resolves.toMatchObject(
+async function checkBonusVideoCopiedToUser(): Promise<void> {
+  return expect(s3Client.send(headUserBonusVideoCommand)).resolves.toMatchObject(
     bonusVideoCopiedToUserResult
+  );
+}
+
+async function checkUserBonusVideoDeleted(): Promise<void> {
+  return expect(s3Client.send(headUserBonusVideoCommand)).rejects.toThrowError(
+    NotFound
   );
 }

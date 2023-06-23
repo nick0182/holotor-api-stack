@@ -1,10 +1,14 @@
 import {
   DeleteItemCommand,
+  DeleteItemCommandOutput,
   DynamoDBClient,
+  PutItemCommand,
   QueryCommand,
+  QueryCommandOutput,
   ReturnConsumedCapacity,
   ReturnValue,
   ScanCommand,
+  ScanCommandOutput,
 } from "@aws-sdk/client-dynamodb";
 
 const environment = process.env.ENVIRONMENT as string;
@@ -12,6 +16,10 @@ const environment = process.env.ENVIRONMENT as string;
 const queryKeyConditionExpression = "user_id = :a AND video_retrieval_ts > :b";
 
 const bonusVideosTableKey = "video_id";
+
+const bonusVideosTableName = `${environment}-bonus-videos`;
+
+const userBonusVideosTableName = `${environment}-user-bonus-videos`;
 
 export class DatabaseService {
   constructor(
@@ -28,7 +36,7 @@ export class DatabaseService {
     return this.dbClient
       .send(
         new QueryCommand({
-          TableName: `${environment}-user-bonus-videos`,
+          TableName: userBonusVideosTableName,
           KeyConditionExpression: queryKeyConditionExpression,
           ExpressionAttributeValues: {
             ":a": { S: userId },
@@ -37,7 +45,7 @@ export class DatabaseService {
           ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
         })
       )
-      .then((res) => (res.Count ?? 0) > 0);
+      .then((res: QueryCommandOutput) => (res.Count ?? 0) > 0);
   }
 
   async readBonusVideo(): Promise<string | undefined> {
@@ -45,14 +53,14 @@ export class DatabaseService {
     return this.dbClient
       .send(
         new ScanCommand({
-          TableName: `${environment}-bonus-videos`,
+          TableName: bonusVideosTableName,
           ConsistentRead: true,
           Limit: 1,
           ProjectionExpression: bonusVideosTableKey,
           ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
         })
       )
-      .then((res) => {
+      .then((res: ScanCommandOutput) => {
         console.log(`Read bonus videos response: ${JSON.stringify(res)}`);
         const items = res.Items;
         if (!items || items.length == 0) {
@@ -68,7 +76,7 @@ export class DatabaseService {
     return this.dbClient
       .send(
         new DeleteItemCommand({
-          TableName: `${environment}-bonus-videos`,
+          TableName: bonusVideosTableName,
           Key: {
             video_id: {
               S: videoId,
@@ -78,7 +86,7 @@ export class DatabaseService {
           ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
         })
       )
-      .then((res) => {
+      .then((res: DeleteItemCommandOutput) => {
         console.log(`Delete bonus video response: ${JSON.stringify(res)}`);
         const itemAttributes = res.Attributes;
         if (!itemAttributes) {
@@ -86,6 +94,28 @@ export class DatabaseService {
           return undefined;
         }
         return videoId;
+      });
+  }
+
+  async storeBonusVideo(videoId: string): Promise<void> {
+    console.log(`Storing bonus video: ${videoId}`);
+    return this.dbClient
+      .send(
+        new PutItemCommand({
+          TableName: bonusVideosTableName,
+          Item: {
+            video_id: {
+              S: videoId,
+            },
+          },
+          ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
+          ReturnValues: ReturnValue.NONE,
+        })
+      )
+      .then(() => {
+        console.log(
+          `Store bonus video response was success. videoId: ${videoId}`
+        );
       });
   }
 }

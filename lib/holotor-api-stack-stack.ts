@@ -31,6 +31,7 @@ import {
 import {
   Choice,
   Condition,
+  DISCARD,
   Fail,
   LogLevel,
   Pass,
@@ -47,9 +48,9 @@ import {
 } from "aws-cdk-lib/aws-s3";
 import * as fs from "fs";
 import {
-  allErrorsTaskRetry,
-  bonusVideoRetrieverTaskRetry,
-  genericTaskRetry,
+  allErrorsRetry,
+  bonusVideoRetrieverErrorRetry,
+  lambdaServiceErrorsRetry,
   s3ServiceErrorRetry,
 } from "./util/constants";
 
@@ -80,10 +81,17 @@ export class HolotorApiStackStack extends Stack {
       props.stage,
       lambdaBasicExecutionManagedPolicy
     );
-    const LambdaS3BucketRole: Role = this.createS3BucketLambdaRole(
+    const lambdaS3BucketCopyingRole: Role =
+      this.createS3BucketCopyingLambdaRole(
+        props.stage,
+        usersS3Bucket,
+        bonusVideosS3Bucket,
+        lambdaBasicExecutionManagedPolicy
+      );
+
+    const lambdaS3BucketDeletingRole = this.createS3BucketDeletingLambdaRole(
       props.stage,
       usersS3Bucket,
-      bonusVideosS3Bucket,
       lambdaBasicExecutionManagedPolicy
     );
 
@@ -92,7 +100,19 @@ export class HolotorApiStackStack extends Stack {
     const bonusVideoRetrieverLambda: NodejsFunction =
       this.createBonusVideoRetrieverLambda(props.stage, lambdaBasicRole);
     const copyBonusVideoSourceLambda: NodejsFunction =
-      this.createCopyBonusVideoSourceLambda(props.stage, LambdaS3BucketRole);
+      this.createCopyBonusVideoSourceLambda(
+        props.stage,
+        lambdaS3BucketCopyingRole
+      );
+    const deleteUserBonusVideoSourceLambda: NodejsFunction =
+      this.deleteUserBonusVideoSourceLambda(
+        props.stage,
+        lambdaS3BucketDeletingRole
+      );
+    const restoreBonusVideoLambda = this.restoreBonusVideoLambda(
+      props.stage,
+      lambdaBasicRole
+    );
 
     const flowPass: Pass = this.createFlowPass(props.stage);
     const flowFailure: Fail = this.createFlowFailure(props.stage);
@@ -111,7 +131,18 @@ export class HolotorApiStackStack extends Stack {
       "Copy bonus video source to user's bucket",
       copyBonusVideoSourceLambda
     );
+    const deleteUserBonusVideoTask: tasks.LambdaInvoke = this.createLambdaTask(
+      `${props.stage}-holotor-ubv-delete-user-bonus-video-source`,
+      "Delete user bonus video source from bucket",
+      deleteUserBonusVideoSourceLambda
+    );
+    const restoreBonusVideoTask: tasks.LambdaInvoke = this.createLambdaTask(
+      `${props.stage}-holotor-ubv-restore-bonus-video`,
+      "Restore bonus video to bonus-videos table",
+      restoreBonusVideoLambda
+    );
     const checkUserChoice = this.createCheckUserChoice(props.stage);
+
     checkUserChoice
       .when(
         Condition.numberEquals("$.statusCode", 200),
@@ -120,20 +151,26 @@ export class HolotorApiStackStack extends Stack {
       .when(Condition.numberEquals("$.statusCode", 404), flowPass)
       .otherwise(flowFailure);
     userHasLastVideoTask
-      .addRetry(allErrorsTaskRetry)
+      .addRetry(allErrorsRetry)
       .addCatch(flowFailure)
       .next(checkUserChoice);
     bonusVideoRetrieverTask
-      .addRetry(bonusVideoRetrieverTaskRetry)
+      .addRetry(bonusVideoRetrieverErrorRetry)
       .addCatch(flowFailure)
       .next(copyBonusVideoTask);
     copyBonusVideoTask
       .addRetry(s3ServiceErrorRetry)
-      .addRetry(genericTaskRetry)
-      .addCatch(flowFailure)
-      // .addCatch(storeItemBackToTableTask, s3ServiceErrorCatch)
-      // .addCatch(deleteVideoFromUsersBucketTask)
+      .addRetry(lambdaServiceErrorsRetry)
+      .addCatch(deleteUserBonusVideoTask, { resultPath: DISCARD })
       .next(flowPass);
+    deleteUserBonusVideoTask
+      .addRetry(allErrorsRetry)
+      .addCatch(flowFailure)
+      .next(restoreBonusVideoTask);
+    restoreBonusVideoTask
+      .addRetry(allErrorsRetry)
+      .addCatch(flowFailure)
+      .next(flowFailure);
 
     const stateMachine = this.createStateMachine(
       props.stage,
@@ -171,6 +208,7 @@ export class HolotorApiStackStack extends Stack {
     userBonusVideosTable.grantReadData(userHasLastVideoLambda);
     const bonusVideosTable: Table = this.createBonusVideosTable(props.stage);
     bonusVideosTable.grantReadWriteData(bonusVideoRetrieverLambda);
+    bonusVideosTable.grantWriteData(restoreBonusVideoLambda);
   }
 
   private createCognitoUserPool(stage: string) {
@@ -334,6 +372,54 @@ export class HolotorApiStackStack extends Stack {
     );
   }
 
+  private deleteUserBonusVideoSourceLambda(
+    stage: string,
+    lambdaRole: Role
+  ): NodejsFunction {
+    return new NodejsFunction(
+      this,
+      `${stage}-holotor-ubv-delete-user-bonus-video-source-lambda`,
+      {
+        architecture: Architecture.ARM_64,
+        description: "Lambda for deleting a bonus video from user's s3 bucket",
+        environment: {
+          ENVIRONMENT: stage,
+        },
+        entry: path.join(
+          __dirname,
+          `/../src/handler/deleteUserBonusVideoSource.ts`
+        ),
+        logRetention: RetentionDays.THREE_DAYS,
+        runtime: Runtime.NODEJS_16_X,
+        timeout: Duration.seconds(10),
+        role: lambdaRole,
+      }
+    );
+  }
+
+  private restoreBonusVideoLambda(
+    stage: string,
+    lambdaRole: Role
+  ): NodejsFunction {
+    return new NodejsFunction(
+      this,
+      `${stage}-holotor-ubv-restore-bonus-video-lambda`,
+      {
+        architecture: Architecture.ARM_64,
+        description:
+          "Lambda for restoring a bonus video to DynamoDB 'bonus-videos' table",
+        environment: {
+          ENVIRONMENT: stage,
+        },
+        entry: path.join(__dirname, `/../src/handler/restoreBonusVideo.ts`),
+        logRetention: RetentionDays.THREE_DAYS,
+        runtime: Runtime.NODEJS_16_X,
+        timeout: Duration.seconds(10),
+        role: lambdaRole,
+      }
+    );
+  }
+
   private createCheckUserChoice(stage: string): Choice {
     return new Choice(this, `${stage}-holotor-ubv-check-user-choice`, {
       comment: "Route user based on previous check",
@@ -410,32 +496,66 @@ export class HolotorApiStackStack extends Stack {
     );
   }
 
-  private createS3BucketLambdaRole(
+  private createS3BucketCopyingLambdaRole(
     stage: string,
     usersS3Bucket: Bucket,
     bonusVideosS3Bucket: Bucket,
     lambdaBasicExecutionManagedPolicy: IManagedPolicy
   ): Role {
-    return new Role(this, `${stage}-holotor-user-bonus-videos-lambda-s3-role`, {
-      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
-      managedPolicies: [lambdaBasicExecutionManagedPolicy],
-      inlinePolicies: {
-        BonusVideosCopyPolicy: new PolicyDocument({
-          statements: [
-            new PolicyStatement({
-              actions: ["s3:GetObject", "s3:GetObjectTagging"],
-              effect: Effect.ALLOW,
-              resources: [`arn:aws:s3:::${bonusVideosS3Bucket.bucketName}/*`],
-            }),
-            new PolicyStatement({
-              actions: ["s3:PutObject", "s3:PutObjectTagging"],
-              effect: Effect.ALLOW,
-              resources: [`arn:aws:s3:::${usersS3Bucket.bucketName}/*/videos/*`],
-            }),
-          ],
-        }),
-      },
-    });
+    return new Role(
+      this,
+      `${stage}-holotor-user-bonus-videos-lambda-copying-s3-role`,
+      {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+        managedPolicies: [lambdaBasicExecutionManagedPolicy],
+        inlinePolicies: {
+          BonusVideosCopyPolicy: new PolicyDocument({
+            statements: [
+              new PolicyStatement({
+                actions: ["s3:GetObject", "s3:GetObjectTagging"],
+                effect: Effect.ALLOW,
+                resources: [`arn:aws:s3:::${bonusVideosS3Bucket.bucketName}/*`],
+              }),
+              new PolicyStatement({
+                actions: ["s3:PutObject", "s3:PutObjectTagging"],
+                effect: Effect.ALLOW,
+                resources: [
+                  `arn:aws:s3:::${usersS3Bucket.bucketName}/*/videos/*`,
+                ],
+              }),
+            ],
+          }),
+        },
+      }
+    );
+  }
+
+  private createS3BucketDeletingLambdaRole(
+    stage: string,
+    usersS3Bucket: Bucket,
+    lambdaBasicExecutionManagedPolicy: IManagedPolicy
+  ): Role {
+    return new Role(
+      this,
+      `${stage}-holotor-user-bonus-videos-lambda-deleting-s3-role`,
+      {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+        managedPolicies: [lambdaBasicExecutionManagedPolicy],
+        inlinePolicies: {
+          BonusVideosCopyPolicy: new PolicyDocument({
+            statements: [
+              new PolicyStatement({
+                actions: ["s3:DeleteObject", "s3:DeleteObjectTagging"],
+                effect: Effect.ALLOW,
+                resources: [
+                  `arn:aws:s3:::${usersS3Bucket.bucketName}/*/videos/*`,
+                ],
+              }),
+            ],
+          }),
+        },
+      }
+    );
   }
 
   private createLambdaBasicExecutionManagedPolicy(
