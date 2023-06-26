@@ -1,6 +1,8 @@
 import {
   CreateBucketCommand,
-  DeleteBucketCommand, DeleteObjectCommand, HeadObjectCommand,
+  DeleteBucketCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3ClientConfig,
 } from "@aws-sdk/client-s3";
@@ -23,11 +25,11 @@ const bonusVideosBucket = `${process.env.ENVIRONMENT}-holotor-bonus-videos`;
 
 const userVideosBucket = `${process.env.ENVIRONMENT}-holotor-users`;
 
-const userVideoKey = `${userId}/videos/${videoId}`
+const userVideoKey = `${userId}/videos/${videoId}`;
 
 const videoNameMetadata: Record<string, string> = {
-  "x-amz-meta-holotor-bonus-video-name": "test video.mp4"
-}
+  "x-amz-meta-holotor-bonus-video-name": "test video.mp4",
+};
 
 const videoContentType = "video/mp4";
 
@@ -43,10 +45,10 @@ export const noContentResult = {
   },
 };
 
-export const bonusVideoCopiedToUserResult = {
+export const bonusVideoCopyResult = {
   Metadata: videoNameMetadata,
   ContentType: videoContentType,
-}
+};
 
 export const createBonusVideosBucketCommand: CreateBucketCommand =
   new CreateBucketCommand({
@@ -55,7 +57,7 @@ export const createBonusVideosBucketCommand: CreateBucketCommand =
 
 export const createUserBonusVideosBucketCommand: CreateBucketCommand =
   new CreateBucketCommand({
-    Bucket: userVideosBucket
+    Bucket: userVideosBucket,
   });
 
 export const deleteBonusVideosBucketCommand: DeleteBucketCommand =
@@ -73,7 +75,9 @@ export const putBonusVideoCommand: PutObjectCommand = new PutObjectCommand({
   Key: videoId,
   Metadata: videoNameMetadata,
   ContentType: videoContentType,
-  Body: fs.readFileSync(path.join(__dirname, "../../resources/s3/test video.mp4"))
+  Body: fs.readFileSync(
+    path.join(__dirname, "../../resources/s3/test video.mp4")
+  ),
 });
 
 export const putUserBonusVideoCommand: PutObjectCommand = new PutObjectCommand({
@@ -101,5 +105,10 @@ export const deleteUserBonusVideoCommand: DeleteObjectCommand =
 export const headUserBonusVideoCommand: HeadObjectCommand =
   new HeadObjectCommand({
     Bucket: userVideosBucket,
-    Key:userVideoKey
+    Key: userVideoKey,
   });
+
+export const headBonusVideoCommand: HeadObjectCommand = new HeadObjectCommand({
+  Bucket: bonusVideosBucket,
+  Key: videoId,
+});

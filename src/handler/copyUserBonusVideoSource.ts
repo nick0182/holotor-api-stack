@@ -10,7 +10,7 @@ export const handler = async (
   const payloadString = JSON.stringify(event, null, 2);
   console.log("Payload:\n" + payloadString);
   const body = JSON.parse(event.body);
-  await s3Service.copyBonusVideo(body.videoId, body.userId);
+  await s3Service.copyUserBonusVideo(body.videoId, body.userId);
   return {
     statusCode: 200,
     body: event.body,
