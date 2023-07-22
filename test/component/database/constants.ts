@@ -6,16 +6,21 @@ import {
   ScalarAttributeType,
 } from "@aws-sdk/client-dynamodb";
 import * as dotenv from "dotenv";
+import {ProjectionType} from "aws-cdk-lib/aws-dynamodb";
 
 dotenv.config();
 
 export type Table = "user-bonus-videos" | "bonus-videos";
 
-const userBonusVideosPartitionKey = "user_id";
+const userBonusVideosUserId = "user_id";
 
-const userBonusVideosSortKey = "video_retrieval_ts";
+const userBonusVideosVideoId = "video_id";
 
-const userBonusVideosTableName = `${process.env.ENVIRONMENT}-user-bonus-videos`;
+const userBonusVideosGetVideoTimestamp = "get_video_ts";
+
+const userBonusVideosIndexName = "user_id-get_video_ts";
+
+export const userBonusVideosTableName = `${process.env.ENVIRONMENT}-bonus-videos-of-user`;
 
 const bonusVideosPartitionKey = "video_id";
 
@@ -56,21 +61,25 @@ export const createTableCommands: Record<Table, CreateTableCommand> = {
     TableName: userBonusVideosTableName,
     KeySchema: [
       {
-        AttributeName: userBonusVideosPartitionKey,
+        AttributeName: userBonusVideosUserId,
         KeyType: KeyType.HASH,
       },
       {
-        AttributeName: userBonusVideosSortKey,
+        AttributeName: userBonusVideosVideoId,
         KeyType: KeyType.RANGE,
       },
     ],
     AttributeDefinitions: [
       {
-        AttributeName: userBonusVideosPartitionKey,
+        AttributeName: userBonusVideosUserId,
         AttributeType: ScalarAttributeType.S,
       },
       {
-        AttributeName: userBonusVideosSortKey,
+        AttributeName: userBonusVideosVideoId,
+        AttributeType: ScalarAttributeType.S,
+      },
+      {
+        AttributeName: userBonusVideosGetVideoTimestamp,
         AttributeType: ScalarAttributeType.N,
       },
     ],
@@ -78,6 +87,28 @@ export const createTableCommands: Record<Table, CreateTableCommand> = {
       ReadCapacityUnits: 5,
       WriteCapacityUnits: 5,
     },
+    GlobalSecondaryIndexes: [
+      {
+        IndexName: userBonusVideosIndexName,
+        KeySchema: [
+          {
+            AttributeName: userBonusVideosUserId,
+            KeyType: KeyType.HASH,
+          },
+          {
+            AttributeName: userBonusVideosGetVideoTimestamp,
+            KeyType: KeyType.RANGE,
+          },
+        ],
+        Projection: {
+          ProjectionType: ProjectionType.KEYS_ONLY
+        },
+        ProvisionedThroughput: {
+          ReadCapacityUnits: 5,
+          WriteCapacityUnits: 5,
+        },
+      }
+    ]
   }),
   "bonus-videos": new CreateTableCommand({
     TableName: bonusVideosTableName,

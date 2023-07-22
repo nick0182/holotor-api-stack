@@ -29,7 +29,9 @@ export const handler = async (
     );
     return {
       statusCode: 404,
-      body: "Bonus video is not available yet",
+      body: JSON.stringify({
+        message: "Bonus video is not available yet",
+      }),
     };
   }
   console.log(`A new bonus video is available to user: ${cognitoUserJSON}`);

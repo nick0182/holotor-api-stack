@@ -1,4 +1,4 @@
-import {CatchProps, RetryProps} from "aws-cdk-lib/aws-stepfunctions";
+import { RetryProps } from "aws-cdk-lib/aws-stepfunctions";
 
 // --------------------------------- retries ----------------------------------------------
 
@@ -11,7 +11,9 @@ const lambdaServiceErrors = [
   "Lambda.SdkClientException",
 ];
 
-const s3ServiceError = ["S3ServiceException"];
+const s3ServiceError: string[] = ["S3ServiceException"];
+
+const dynamoDBServiceError: string[] = ["DynamoDBServiceException"];
 
 // retry on lambda service errors
 export const lambdaServiceErrorsRetry: RetryProps = {
@@ -31,8 +33,12 @@ export const bonusVideoRetrieverErrorRetry: RetryProps = {
   maxAttempts: 2,
 };
 
-// retry on s3ServiceError
 export const s3ServiceErrorRetry: RetryProps = {
   errors: s3ServiceError,
-  maxAttempts: 0
-}
+  maxAttempts: 0,
+};
+
+export const dynamoDBServiceErrorRetry: RetryProps = {
+  errors: dynamoDBServiceError,
+  maxAttempts: 0,
+};

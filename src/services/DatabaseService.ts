@@ -13,13 +13,15 @@ import {
 
 const environment = process.env.ENVIRONMENT as string;
 
-const queryKeyConditionExpression = "user_id = :a AND video_retrieval_ts > :b";
+const queryKeyConditionExpression = "user_id = :a AND get_video_ts > :b";
 
 const bonusVideosTableKey = "video_id";
 
 const bonusVideosTableName = `${environment}-bonus-videos`;
 
-const userBonusVideosTableName = `${environment}-user-bonus-videos`;
+const userBonusVideosTableName = `${environment}-bonus-videos-of-user`;
+
+const userBonusVideosIndexName = "user_id-get_video_ts";
 
 export class DatabaseService {
   constructor(
@@ -37,6 +39,7 @@ export class DatabaseService {
       .send(
         new QueryCommand({
           TableName: userBonusVideosTableName,
+          IndexName: userBonusVideosIndexName,
           KeyConditionExpression: queryKeyConditionExpression,
           ExpressionAttributeValues: {
             ":a": { S: userId },
@@ -114,7 +117,67 @@ export class DatabaseService {
       )
       .then(() => {
         console.log(
-          `Store bonus video response was success. videoId: ${videoId}`
+          `Store bonus video response was success; videoId: ${videoId}`
+        );
+      });
+  }
+
+  async storeUserBonusVideo(userId: string, videoId: string): Promise<void> {
+    console.log(
+      `Storing user bonus video; userId: ${userId}, videoId: ${videoId}`
+    );
+    return this.dbClient
+      .send(
+        new PutItemCommand({
+          TableName: userBonusVideosTableName,
+          Item: {
+            user_id: {
+              S: userId,
+            },
+            get_video_ts: {
+              N: new Date().getTime().toString(),
+            },
+            video_id: {
+              S: videoId,
+            },
+          },
+          ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
+          ReturnValues: ReturnValue.NONE,
+        })
+      )
+      .then(() => {
+        console.log(
+          `Store user bonus video response was success; userId: ${userId}, videoId: ${videoId}`
+        );
+      });
+  }
+
+  async deleteUserBonusVideo(
+    userId: string,
+    videoId: string
+  ): Promise<void> {
+    console.log(
+      `Deleting user bonus video; userId: ${userId}, videoId: ${videoId}`
+    );
+    return this.dbClient
+      .send(
+        new DeleteItemCommand({
+          TableName: userBonusVideosTableName,
+          Key: {
+            user_id: {
+              S: userId,
+            },
+            video_id: {
+              S: videoId,
+            },
+          },
+          ReturnConsumedCapacity: ReturnConsumedCapacity.NONE,
+          ReturnValues: ReturnValue.NONE,
+        })
+      )
+      .then(() => {
+        console.log(
+          `Delete user bonus video response was success; userId: ${userId}, videoId: ${videoId}`
         );
       });
   }
