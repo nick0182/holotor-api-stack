@@ -3,9 +3,11 @@ import {
   CopyObjectCommandOutput,
   DeleteObjectCommand,
   DeleteObjectCommandOutput,
+  GetObjectCommand,
   S3Client,
   S3ServiceException,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const environment = process.env.ENVIRONMENT as string;
 
@@ -14,7 +16,7 @@ const bonusVideosBucket = `${environment}-holotor-bonus-videos`;
 const userBonusVideosBucket = `${environment}-holotor-users`;
 
 export class S3Service {
-  constructor(private readonly s3Client: S3Client = new S3Client({})) {}
+  constructor(private readonly s3Client: S3Client = new S3Client({region: "me-south-1"})) {}
 
   async copyBonusVideo(videoId: string, userId: string): Promise<void> {
     console.log(
@@ -116,5 +118,16 @@ export class S3Service {
           throw error;
         }
       );
+  }
+
+  async createPreSignedURL(userId: string, videoId: string): Promise<string> {
+    console.log(
+      `Creating user bonus video pre-signed url; userId: ${userId}, videoId: ${videoId}`
+    );
+    const getObjectCommand: GetObjectCommand = new GetObjectCommand({
+      Bucket: userBonusVideosBucket,
+      Key: `${userId}/videos/${videoId}`,
+    });
+    return getSignedUrl(this.s3Client, getObjectCommand);
   }
 }

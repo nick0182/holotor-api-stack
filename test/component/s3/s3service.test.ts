@@ -264,6 +264,16 @@ describe("S3 service test", () => {
       await deleteBonusVideosBucket();
     });
   });
+
+  describe("Test user bonus bonus video pre-signed url", () => {
+    test("Should create pre-signed url", async () => {
+      // ------------------------------------ Assert ----------------------------------------
+
+      await expect(
+        s3Service.createPreSignedURL(userId, videoId)
+      ).resolves
+    });
+  });
 });
 
 async function createBonusVideosBucket(): Promise<void> {
@@ -321,9 +331,9 @@ async function checkBonusVideoCopiedToUser(): Promise<void> {
 }
 
 async function checkUserBonusVideoCopiedToVideo(): Promise<void> {
-  return expect(
-    s3Client.send(headBonusVideoCommand)
-  ).resolves.toMatchObject(bonusVideoCopyResult);
+  return expect(s3Client.send(headBonusVideoCommand)).resolves.toMatchObject(
+    bonusVideoCopyResult
+  );
 }
 
 async function checkUserBonusVideoDeleted(): Promise<void> {

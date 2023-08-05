@@ -98,7 +98,7 @@ export class HolotorApiStackStack extends Stack {
       );
 
     const lambdaUserBonusVideosS3BucketDeletingRole =
-      this.createUserBonusVideosS3BucketDeletingLambdaRole(
+      this.createUserBonusVideosS3BucketDeleteObjectLambdaRole(
         props.stage,
         usersS3Bucket,
         lambdaBasicExecutionManagedPolicy
@@ -139,6 +139,8 @@ export class HolotorApiStackStack extends Stack {
       );
     const storeUserBonusVideoLambda: NodejsFunction =
       this.createStoreUserBonusVideoLambda(props.stage, lambdaBasicRole);
+    const createUserBonusVideoDownloadableLinkLambda: NodejsFunction =
+      this.createUserBonusVideoDownloadableLinkLambda(props.stage, lambdaBasicRole);
     const restoreBonusVideoLambda: NodejsFunction =
       this.createRestoreBonusVideoLambda(props.stage, lambdaBasicRole);
 
@@ -186,6 +188,12 @@ export class HolotorApiStackStack extends Stack {
       "Store bonus video in user-bonus-videos table",
       storeUserBonusVideoLambda
     );
+    const createUserBonusVideoDownloadableLinkTask: tasks.LambdaInvoke =
+      this.createLambdaTask(
+        `${props.stage}-holotor-ubv-create-user-bonus-video-downloadable-link`,
+        "Create user bonus video downloadable link",
+        createUserBonusVideoDownloadableLinkLambda
+      );
     const restoreBonusVideoTask: tasks.LambdaInvoke = this.createLambdaTask(
       `${props.stage}-holotor-ubv-restore-bonus-video`,
       "Restore bonus video to bonus-videos table",
@@ -222,7 +230,11 @@ export class HolotorApiStackStack extends Stack {
       .addRetry(dynamoDBServiceErrorRetry)
       .addRetry(lambdaServiceErrorsRetry)
       .addCatch(deleteUserBonusVideoFromTableTask, { resultPath: DISCARD })
-      .next(flowPass);
+      .next(createUserBonusVideoDownloadableLinkTask);
+    createUserBonusVideoDownloadableLinkTask
+      .addRetry(lambdaServiceErrorsRetry)
+      .addCatch(deleteUserBonusVideoFromTableTask, { resultPath: DISCARD })
+      .next(flowPass)
     deleteUserBonusVideoFromTableTask
       .addRetry(dynamoDBServiceErrorRetry)
       .addRetry(lambdaServiceErrorsRetry)
@@ -280,6 +292,7 @@ export class HolotorApiStackStack extends Stack {
     const bonusVideosTable: Table = this.createBonusVideosTable(props.stage);
     bonusVideosTable.grantReadWriteData(bonusVideoRetrieverLambda);
     bonusVideosTable.grantWriteData(restoreBonusVideoLambda);
+    usersS3Bucket.grantRead(createUserBonusVideoDownloadableLinkLambda, "*/videos/*")
   }
 
   private createCognitoUserPool(stage: string) {
@@ -417,6 +430,29 @@ export class HolotorApiStackStack extends Stack {
           ENVIRONMENT: stage,
         },
         entry: path.join(__dirname, `/../src/handler/storeUserBonusVideo.ts`),
+        logRetention: RetentionDays.THREE_DAYS,
+        runtime: Runtime.NODEJS_16_X,
+        timeout: Duration.seconds(10),
+        role: lambdaRole,
+      }
+    );
+  }
+  
+  private createUserBonusVideoDownloadableLinkLambda(
+    stage: string,
+    lambdaRole: Role
+  ): NodejsFunction {
+    return new NodejsFunction(
+      this,
+      `${stage}-holotor-ubv-create-user-bonus-video-downloadable-link-lambda`,
+      {
+        architecture: Architecture.ARM_64,
+        description:
+          "Lambda for creating user bonus video s3 downloadable link",
+        environment: {
+          ENVIRONMENT: stage,
+        },
+        entry: path.join(__dirname, `/../src/handler/createUserBonusVideoDownloadableLink.ts`),
         logRetention: RetentionDays.THREE_DAYS,
         runtime: Runtime.NODEJS_16_X,
         timeout: Duration.seconds(10),
@@ -738,7 +774,7 @@ export class HolotorApiStackStack extends Stack {
     );
   }
 
-  private createUserBonusVideosS3BucketDeletingLambdaRole(
+  private createUserBonusVideosS3BucketDeleteObjectLambdaRole(
     stage: string,
     usersS3Bucket: Bucket,
     lambdaBasicExecutionManagedPolicy: IManagedPolicy
@@ -803,18 +839,22 @@ export class HolotorApiStackStack extends Stack {
   }
 
   private createUserBonusVideosTable(stage: string): Table {
-    const userBonusVideoTable: Table = new Table(this, `${stage}-holotor-user-bonus-videos-table`, {
-      partitionKey: {
-        name: "user_id",
-        type: AttributeType.STRING,
-      },
-      removalPolicy: RemovalPolicy.DESTROY,
-      sortKey: {
-        name: "video_id",
-        type: AttributeType.STRING,
-      },
-      tableName: `${stage}-bonus-videos-of-user`,
-    });
+    const userBonusVideoTable: Table = new Table(
+      this,
+      `${stage}-holotor-user-bonus-videos-table`,
+      {
+        partitionKey: {
+          name: "user_id",
+          type: AttributeType.STRING,
+        },
+        removalPolicy: RemovalPolicy.DESTROY,
+        sortKey: {
+          name: "video_id",
+          type: AttributeType.STRING,
+        },
+        tableName: `${stage}-bonus-videos-of-user`,
+      }
+    );
     userBonusVideoTable.addGlobalSecondaryIndex({
       indexName: "user_id-get_video_ts",
       partitionKey: {
@@ -825,7 +865,7 @@ export class HolotorApiStackStack extends Stack {
         name: "get_video_ts",
         type: AttributeType.NUMBER,
       },
-      projectionType: ProjectionType.KEYS_ONLY
+      projectionType: ProjectionType.KEYS_ONLY,
     });
     return userBonusVideoTable;
   }
